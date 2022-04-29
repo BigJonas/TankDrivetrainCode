@@ -25,8 +25,8 @@ public final class Constants {
         static {
             MOTOR_CONFIGS[0].INVERTED = false;
             MOTOR_CONFIGS[1].INVERTED = false;
-            MOTOR_CONFIGS[2].INVERTED = true; // Right side inverted cause
-            MOTOR_CONFIGS[3].INVERTED = true;
+            MOTOR_CONFIGS[2].INVERTED = false; 
+            MOTOR_CONFIGS[3].INVERTED = false;
 
         }
 
