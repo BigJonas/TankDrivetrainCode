@@ -9,6 +9,7 @@ import com.revrobotics.CANSparkMax;
 
 import edu.wpi.first.math.controller.PIDController;
 import edu.wpi.first.math.filter.SlewRateLimiter;
+import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.wpilibj.DoubleSolenoid;
 import edu.wpi.first.wpilibj.drive.DifferentialDrive;
 import edu.wpi.first.wpilibj.motorcontrol.MotorControllerGroup;
@@ -77,29 +78,26 @@ public class Drivetrain extends SubsystemBase {
    * @param rot Rotational velocity (only used not in fieldCentric)
    */
   public synchronized void drive(double xVelocity, double yVelocity, double rot) {
-    double fieldCentricAngleSetpoint = Math.atan2(xVelocity, yVelocity); // In radians    
-    double fieldCentricSpeedSetpoint = Math.hypot(xVelocity, yVelocity); // From -1 to 1
     
-    // TODO: I think this is 3:00 AM code this is a double nested terneary
+    double[] fieldCentricSetpoints = {
+      Math.toDegrees(Math.atan2(xVelocity, yVelocity)), // Angle setpoint in degrees
+      Math.hypot(xVelocity, yVelocity)                  // Speed setpoint from -1 to 1
+    };
+    
+    fieldCentricSetpoints = optimizeFieldCentricSetpoints(fieldCentricSetpoints);
+    
+    // TODO: I think this is 3:00 AM code this is a double nested terneary operator
     if (fieldCentricActive) {
       // Only drives when youre at the angle setpoint and rotates to the setpoint if youre not
       drive.arcadeDrive(
-        // If it is within leftstick angling tolerance
-        Math.abs(fieldCentricAngleSetpoint - getGyroAngle()) <= ROTATION_TOLERANCE ? 
-          // If it is then drive with leftstick
-          limiter.calculate(pidController.calculate(getWheelVelocity(), fieldCentricSpeedSetpoint)) :
-          // If not then unable to drive  
-          0.0,
+        // Wheel speed
+        limiter.calculate(pidController.calculate(getWheelVelocity(), fieldCentricSetpoints[1])),
         // If the right stick is being used
-        Math.abs(rot) > 0.0 ? 
-          // If true override lefstick  
+        Math.abs(rot) != 0.0 ? 
+          // If true override lefstick with rightstick rot
           limiter.calculate(rot) : 
-          // If not then if it is within leftstick angling tolerance
-          Math.abs(fieldCentricAngleSetpoint - getGyroAngle()) <= ROTATION_TOLERANCE ? 
-            // If its in tolerance than dont rotate
-            0.0 : 
-            // If else rotate using leftstick angling
-            limiter.calculate(pidController.calculate(getGyroAngle(), fieldCentricAngleSetpoint)),
+          // If else rotate using leftstick angling
+          limiter.calculate(pidController.calculate(getGyroAngle(), fieldCentricSetpoints[0])),
         true 
       );
 
@@ -131,7 +129,7 @@ public class Drivetrain extends SubsystemBase {
 
   /**
    * Sets the state on whether or not the robot is in field centric
-   * @param fieldCentricActive whether to activate field centric mode
+   * @param fieldCentricActive Whether to activate field centric mode
    */
   public synchronized void setFieldCentricActive(boolean fieldCentricActive) {
     this.fieldCentricActive = fieldCentricActive;
@@ -139,10 +137,10 @@ public class Drivetrain extends SubsystemBase {
 
   /**
    * Gets the gyros angle
-   * @return The angle of the gyro in radians
+   * @return The angle of the gyro in degrees
    */
   public double getGyroAngle() {
-    return Math.toRadians(gyro.getAngle());
+    return gyro.getAngle();
   }
 
   /**
@@ -170,6 +168,30 @@ public class Drivetrain extends SubsystemBase {
     return shifter.get() == SHIFTER_UP_VALUE ? 1 : 0;
   }
 
+  /**
+   * Optimizes the setpoints to travel the least amoint of distance
+   * @param setpoints Setpoints of the robot 0 is angle and 1 is speed
+   * @return Optimized setpoints
+   */
+  private double[] optimizeFieldCentricSetpoints(double[] setpoints) {
+    Rotation2d currentAngle = new Rotation2d(Math.toRadians(getGyroAngle()));
+    Rotation2d desiredAngle = new Rotation2d(Math.toRadians(setpoints[0]));
+    var delta = desiredAngle.minus(currentAngle);
+
+    double[] optimizedSetpoints = new double[2];
+
+    if (Math.abs(delta.getDegrees()) > 90.0) {
+      // Rotates the setpoints to be 180 degrees more and reverses speed
+      optimizedSetpoints[0] = desiredAngle.rotateBy(Rotation2d.fromDegrees(180)).getDegrees();
+      optimizedSetpoints[1] = -setpoints[1];
+
+      return optimizedSetpoints;
+    } else {
+      // Does not need to be optimized so return unchanged setpoints
+      return setpoints;
+    }
+
+  }
 
   @Override
   public void periodic() {
